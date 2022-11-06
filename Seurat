@@ -1,0 +1,52 @@
+library(dplyr)
+library(Seurat)
+library(patchwork)
+#Download the GEO data from https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE190800
+meth.data <- Read10X(data.dir = "./")
+meth <- CreateSeuratObject(counts = meth.data, project = "meth", min.cells = 3, min.features = 200)
+meth[["percent.mt"]] <- PercentageFeatureSet(meth, pattern = "^Mt-")
+VlnPlot(meth, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+plot1 <- FeatureScatter(meth, feature1 = "nCount_RNA", feature2 = "percent.mt")
+plot2 <- FeatureScatter(meth, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot1 + plot2
+meth <- subset(meth, subset = nFeature_RNA > 400 & nFeature_RNA < 4000)
+meth <- NormalizeData(meth, normalization.method = "LogNormalize", scale.factor = 10000)
+meth <- FindVariableFeatures(meth, selection.method = "vst", nfeatures = 2000)
+top10 <- head(VariableFeatures(meth), 10)
+plot1 <- VariableFeaturePlot(meth)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot2
+all.genes <- rownames(meth)
+meth <- ScaleData(meth, features = all.genes)
+meth <- RunPCA(meth, features = VariableFeatures(object = meth))
+print(meth[["pca"]], dims = 1:5, nfeatures = 5)
+VizDimLoadings(meth, dims = 1:2, reduction = "pca")
+DimPlot(meth, reduction = "pca")
+DimHeatmap(meth, dims = 1, cells = 500, balanced = TRUE)
+DimHeatmap(meth, dims = 1:15, cells = 500, balanced = TRUE)
+meth <- JackStraw(meth, num.replicate = 100, dim = 50)
+meth <- ScoreJackStraw(meth, dims = 1:50)
+JackStrawPlot(meth, dims = 1:50)
+ElbowPlot(meth, ndims=50)
+meth <- FindNeighbors(meth, dims = 1:31)
+meth <- FindClusters(meth, resolution = 0.5)
+meth <- RunTSNE(meth, dims = 1:31)
+DimPlot(meth, reduction = "tsne")
+meth.markers <- FindAllMarkers(meth, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+meth.markers %>%
+  group_by(cluster) %>%
+  top_n(n = 10, wt = avg_log2FC) -> top10
+DoHeatmap(meth, features = top10$gene) + NoLegend()
+write.table(meth.markers, "AllMarkerGenes.txt")
+FeaturePlot(meth, features = c("Slc1a3", "Mag", "P2ry12", "Pdgfra", "Syt1", "Snap25", "Satb2", "Lmo4", "Gad2"))
+LabelClusters(DimPlot(meth, reduction = "tsne"),id = 'ident')
+new.cluster.ids <- c("Oligo1", "Ex1", "Ex2", "Ex3", "Micro", "In1", "Ex4", "In2", "In3", "In4", "In5", "Ex5", "Ex6", "In6", "OPC",
+                     "Astro1", "Ex7", "Ex8", "Ex9", "Ex10", "Oligo2", "Oligo3", "In7", "Unspecified1", "Unspecified2", "Unspecified3")
+names(new.cluster.ids) <- levels(meth)
+meth <- RenameIdents(meth, new.cluster.ids)
+DimPlot(meth, reduction = "tsne", label = TRUE, pt.size = 0.5) + NoLegend()
+
+cell_no <- as.data.frame(table(meth@meta.data$seurat_clusters))
+barplot(height=cell_no$Freq, names=cell_no$Var1, col=cell_no$Var1)
+
+VlnPlot(meth, features ="Gja1", pt.size = 0, flip = T) + NoLegend()
